@@ -168,8 +168,7 @@ create or replace package EAM_EPM is
   --     considerando los cambios en  el paquete EAM
   -- 6)  Creacion del procedimiento  EAM_FLUJO_CIRS_PARALELO para ejecutar
   --     el flujo de Circuitos para todos los circuitos en 10 grupos  paralelos
-  
-  
+
   -- Modificación
   -- Version : 3.0.0
   -- Author  : Lucas Turchet
@@ -177,6 +176,22 @@ create or replace package EAM_EPM is
   -- Purpose : Nuevos Funcionalidades
   -- Notas de la versión
   -- 1)  Implementación de la taxonomia de Transmision
+
+  -- Modificación
+  -- Version : 3.0.1
+  -- Author  : Lucas Turchet
+  -- Created : 26/04/2018
+  -- Purpose : Nuevos Funcionalidades
+  -- Notas de la versión
+  -- 1)  Manejo de novedades y retirados para taxonima transmision
+  
+  -- Modificación
+  -- Version : 3.0.2
+  -- Author  : Lucas Turchet
+  -- Created : 27/04/2018
+  -- Purpose : Nuevos Funcionalidades
+  -- Notas de la versión
+  -- 1)  Manejo de novedades y retirados para taxonima civil
 
   --Exception de circuito que no tiene un interruptor
   circuito_sin_interruptor exception;
@@ -277,7 +292,7 @@ create or replace package EAM_EPM is
   procedure EAM_ACTIVOS_CIR(pCircuito CRED_TEN_CIR_CAT.CIRCUITO%type);
 
   -- Recalcula los numeros de los activos despues de la primer ejecución
-  procedure EAM_CALC_ACT_CIR(pCircuito CRED_TEN_CIR_CAT.CIRCUITO%type);
+  procedure EAM_MANEJO_ACTIVO(pCircuito CRED_TEN_CIR_CAT.CIRCUITO%type);
 
   --Calcula la red de parrilla
   procedure EAM_CARGA_PARRILLA;
@@ -313,6 +328,12 @@ create or replace package EAM_EPM is
 
   -- Ejecuta la taxonomia de Transmisión
   procedure EAM_TAXONOMIA_TRANSMISION;
+
+  -- Maneja las novedades 
+  procedure EAM_MANEJO_NOVEDADES(pcircuito varchar2);
+
+  -- Maneja los retirados 
+  procedure EAM_MANEJO_RETIRADOS(pcircuito varchar2);
 
 end EAM_EPM;
 /
@@ -389,8 +410,8 @@ create or replace package body EAM_EPM is
                  fecha_conclusion = null
            where circuito = cir.circuito;
           delete from eam_traces where circuito = cir.circuito;
-          delete from eam_activos where circuito = cir.circuito;
-          delete from eam_ubicacion where circuito = cir.circuito;
+          delete from eam_activos_temp where circuito = cir.circuito;
+          delete from eam_ubicacion_temp where circuito = cir.circuito;
           commit;
         
         when trace_con_varios_interruptores then
@@ -403,8 +424,8 @@ create or replace package body EAM_EPM is
                  fecha_conclusion = null
            where circuito = cir.circuito;
           delete from eam_traces where circuito = cir.circuito;
-          delete from eam_activos where circuito = cir.circuito;
-          delete from eam_ubicacion where circuito = cir.circuito;
+          delete from eam_activos_temp where circuito = cir.circuito;
+          delete from eam_ubicacion_temp where circuito = cir.circuito;
           commit;
         when conductor_sin_ubicacion then
           update eam_circuitos
@@ -416,8 +437,8 @@ create or replace package body EAM_EPM is
                  fecha_conclusion = null
            where circuito = cir.circuito;
           delete from eam_traces where circuito = cir.circuito;
-          delete from eam_activos where circuito = cir.circuito;
-          delete from eam_ubicacion where circuito = cir.circuito;
+          delete from eam_activos_temp where circuito = cir.circuito;
+          delete from eam_ubicacion_temp where circuito = cir.circuito;
           commit;
         when timeout_loop then
           update eam_circuitos
@@ -429,8 +450,8 @@ create or replace package body EAM_EPM is
                  fecha_conclusion = null
            where circuito = cir.circuito;
           delete from eam_traces where circuito = cir.circuito;
-          delete from eam_activos where circuito = cir.circuito;
-          delete from eam_ubicacion where circuito = cir.circuito;
+          delete from eam_activos_temp where circuito = cir.circuito;
+          delete from eam_ubicacion_temp where circuito = cir.circuito;
           commit;
         
         when others then
@@ -444,8 +465,8 @@ create or replace package body EAM_EPM is
                  fecha_conclusion = null
            where circuito = cir.circuito;
           delete from eam_traces where circuito = cir.circuito;
-          delete from eam_activos where circuito = cir.circuito;
-          delete from eam_ubicacion where circuito = cir.circuito;
+          delete from eam_activos_temp where circuito = cir.circuito;
+          delete from eam_ubicacion_temp where circuito = cir.circuito;
           commit;
       end;
     end loop;
@@ -469,11 +490,19 @@ create or replace package body EAM_EPM is
       return;
     end if;
   
+    delete from eam_activos_temp where circuito = pcircuito;
+    commit;
+    delete from eam_ubicacion_temp where circuito = pcircuito;
+    commit;
+  
     EAM_TOPOLOGIA_CIR(pcircuito, vCorte);
     EAM_GRUPOS_CIR(pcircuito, vCorte, timeout_min);
     EAM_UBICACION_CIR(pcircuito, vCorte);
-    EAM_CALC_ACT_CIR(pcircuito);
     EAM_ACTIVOS_CIR(pcircuito);
+  
+    EAM_MANEJO_ACTIVO(pcircuito);
+    EAM_MANEJO_NOVEDADES(pcircuito);
+    EAM_MANEJO_RETIRADOS(pcircuito);
   
     if borrarTrace = 1 then
       delete from eam_traces where circuito = pCircuito;
@@ -2199,9 +2228,10 @@ create or replace package body EAM_EPM is
     vNodoUb  VARCHAR2(30);
     vFNOP    NUMBER(5);
     vFPadre  NUMBER;
+    vACT     DATE;
   
   begin
-  
+    vACT := sysdate;
     --Processar los codigos de los elementos
     for elementoCircuito in elementosCircuito(pCircuito) loop
     
@@ -2289,20 +2319,11 @@ create or replace package body EAM_EPM is
     end loop;
     commit;
   
-    --Registro de ubicaciones retiradas
-    insert into EAM_UBICACION_RETIRADOS
-      select u.*
-        from eam_ubicacion u, ccomun c
-       where u.circuito = pCircuito
-         and c.g3e_fid = u.g3e_fid
-         and c.estado = 'RETIRADO';
-    commit;
-  
-    delete from eam_ubicacion where circuito = pCircuito;
+    delete from eam_ubicacion_temp where circuito = pCircuito;
     commit;
   
     --Circuito, mirar el codigo_ubicacion
-    insert into eam_ubicacion
+    insert into eam_ubicacion_temp
       select circuito,
              g3e_fid,
              g3e_fno,
@@ -2311,7 +2332,8 @@ create or replace package body EAM_EPM is
              3 as Nivel,
              'DISTRIBUCION' as NIVEL_SUPERIOR,
              circuito,
-             'CIRCUITO ' || circuito as Descripcion
+             'CIRCUITO ' || circuito as Descripcion,
+             vACT
         from eam_traces
        where g3e_fno = 18800
          and circuito = pCircuito
@@ -2321,11 +2343,11 @@ create or replace package body EAM_EPM is
     --Alimentador Principal
     select codigo_ubicacion
       into vNvlSup
-      from eam_ubicacion
+      from eam_ubicacion_temp
      where ubicacion = 'CIRCUITO'
        and circuito = pcircuito;
   
-    insert into eam_ubicacion
+    insert into eam_ubicacion_temp
       select circuito,
              g3e_fid,
              g3e_fno,
@@ -2334,7 +2356,8 @@ create or replace package body EAM_EPM is
              4 as Nivel,
              vNvlSup,
              NODO_UBICACION || '-4',
-             'CIRCUITO ' || circuito || ' ALIMENTADOR PRINCIPAL ' || codigo as Descripcion
+             'CIRCUITO ' || circuito || ' ALIMENTADOR PRINCIPAL ' || codigo as Descripcion,
+             vACT
         from eam_traces
        where g3e_fno = 18800
          and circuito = pCircuito
@@ -2344,7 +2367,7 @@ create or replace package body EAM_EPM is
     --Tramos
     select codigo_ubicacion
       into vNvlSup
-      from eam_ubicacion
+      from eam_ubicacion_temp
      where ubicacion = 'ALIMENTADOR PRINCIPAL'
        and circuito = pcircuito;
   
@@ -2368,7 +2391,7 @@ create or replace package body EAM_EPM is
          and circuito = pCircuito
          and rownum = 1;
     
-      insert into eam_ubicacion
+      insert into eam_ubicacion_temp
       values
         (pCircuito,
          c.fid_padre,
@@ -2378,18 +2401,19 @@ create or replace package body EAM_EPM is
          5,
          vNvlSup,
          vNodoUb || '-5',
-         'CIRCUITO ' || pCircuito || ' TRAMO ' || vCodigo);
+         'CIRCUITO ' || pCircuito || ' TRAMO ' || vCodigo,
+         vACT);
       commit;
     end loop;
   
     --ramales
     select codigo_ubicacion
       into vNvlSup
-      from eam_ubicacion
+      from eam_ubicacion_temp
      where ubicacion = 'CIRCUITO'
        and circuito = pcircuito;
   
-    insert into eam_ubicacion
+    insert into eam_ubicacion_temp
       select circuito,
              g3e_fid,
              g3e_fno,
@@ -2398,7 +2422,8 @@ create or replace package body EAM_EPM is
              4 as nivel,
              vNvlSup as nivel_superior,
              NODO_UBICACION || '-4',
-             'CIRCUITO ' || circuito || ' RAMAL ' || CODIGO as descripcion
+             'CIRCUITO ' || circuito || ' RAMAL ' || CODIGO as descripcion,
+             vACT
         from eam_traces
        where tipo = 'Corte Ramal'
          and circuito = pCircuito
@@ -2434,7 +2459,7 @@ create or replace package body EAM_EPM is
       --codigo_ubicacion del ramal
       select codigo_ubicacion
         into vNvlSup
-        from eam_ubicacion
+        from eam_ubicacion_temp
        where ubicacion = 'RAMAL'
          and codigo = vCodigo2
          and circuito = pCircuito
@@ -2447,7 +2472,7 @@ create or replace package body EAM_EPM is
          and circuito = pCircuito
          and rownum = 1;
     
-      insert into eam_ubicacion
+      insert into eam_ubicacion_temp
       values
         (pCircuito,
          seg.fid_padre,
@@ -2457,7 +2482,8 @@ create or replace package body EAM_EPM is
          5,
          vNvlSup,
          vNodoUb || '-5',
-         'CIRCUITO ' || pCircuito || ' SEGMENTO ' || vCodigo);
+         'CIRCUITO ' || pCircuito || ' SEGMENTO ' || vCodigo,
+         vACT);
       commit;
     end loop;
   
@@ -2475,12 +2501,12 @@ create or replace package body EAM_EPM is
       --codigo_ubicacion del ramal
       select codigo_ubicacion
         into vNvlSup
-        from eam_ubicacion
+        from eam_ubicacion_temp
        where ubicacion = 'CIRCUITO'
          and circuito = pCircuito
          and rownum = 1;
     
-      insert into eam_ubicacion
+      insert into eam_ubicacion_temp
       values
         (pCircuito,
          seg.g3e_fid,
@@ -2490,9 +2516,10 @@ create or replace package body EAM_EPM is
          5,
          seg.nodo_ubicacion || '-4',
          seg.nodo_ubicacion || '-5',
-         'CIRCUITO ' || pCircuito || ' SEGMENTO ' || seg.codigo);
+         'CIRCUITO ' || pCircuito || ' SEGMENTO ' || seg.codigo,
+         vACT);
     
-      insert into eam_ubicacion
+      insert into eam_ubicacion_temp
       values
         (pCircuito,
          seg.g3e_fid,
@@ -2502,7 +2529,8 @@ create or replace package body EAM_EPM is
          4,
          vNvlSup,
          seg.nodo_ubicacion || '-4',
-         'CIRCUITO ' || pCircuito || ' RAMAL ' || seg.codigo);
+         'CIRCUITO ' || pCircuito || ' RAMAL ' || seg.codigo,
+         vACT);
       commit;
     
     end loop;
@@ -2521,12 +2549,12 @@ create or replace package body EAM_EPM is
       --codigo_ubicacion del ramal
       select codigo_ubicacion
         into vNvlSup
-        from eam_ubicacion
+        from eam_ubicacion_temp
        where ubicacion = 'ALIMENTADOR PRINCIPAL'
          and circuito = pCircuito
          and rownum = 1;
     
-      insert into eam_ubicacion
+      insert into eam_ubicacion_temp
       values
         (pCircuito,
          seg.g3e_fid,
@@ -2536,7 +2564,8 @@ create or replace package body EAM_EPM is
          5,
          vNvlSup,
          seg.nodo_ubicacion || '-5',
-         'CIRCUITO ' || pCircuito || ' TRAMO ' || seg.codigo);
+         'CIRCUITO ' || pCircuito || ' TRAMO ' || seg.codigo,
+         vACT);
     
       commit;
     
@@ -2565,13 +2594,13 @@ create or replace package body EAM_EPM is
       --codigo_ubicacion del ramal
       select codigo_ubicacion
         into vNvlSup
-        from eam_ubicacion
+        from eam_ubicacion_temp
        where ubicacion = 'RAMAL'
          and codigo = vCodigo2
          and circuito = pCircuito
          and rownum = 1;
     
-      insert into eam_ubicacion
+      insert into eam_ubicacion_temp
       values
         (pCircuito,
          seg.g3e_fid,
@@ -2581,7 +2610,8 @@ create or replace package body EAM_EPM is
          5,
          vNvlSup,
          seg.nodo_ubicacion || '-5',
-         'CIRCUITO ' || pCircuito || ' SEGMENTO ' || seg.codigo);
+         'CIRCUITO ' || pCircuito || ' SEGMENTO ' || seg.codigo,
+         vACT);
     
     end loop;
   
@@ -2600,12 +2630,12 @@ create or replace package body EAM_EPM is
       --codigo_ubicacion del ramal
       select codigo_ubicacion
         into vNvlSup
-        from eam_ubicacion
+        from eam_ubicacion_temp
        where ubicacion = 'ALIMENTADOR PRINCIPAL'
          and circuito = pCircuito
          and rownum = 1;
     
-      insert into eam_ubicacion
+      insert into eam_ubicacion_temp
       values
         (pCircuito,
          seg.g3e_fid,
@@ -2615,7 +2645,8 @@ create or replace package body EAM_EPM is
          5,
          vNvlSup,
          seg.nodo_ubicacion || '-5',
-         'CIRCUITO ' || pCircuito || ' TRAMO ' || seg.codigo);
+         'CIRCUITO ' || pCircuito || ' TRAMO ' || seg.codigo,
+         vACT);
     
       commit;
     
@@ -2656,14 +2687,14 @@ create or replace package body EAM_EPM is
       
         select codigo_ubicacion
           into vNvlSup
-          from eam_ubicacion
+          from eam_ubicacion_temp
          where g3e_fid = vFPadre
            and circuito = pcircuito
            and ubicacion = 'RAMAL';
       elsif nodo.tramo > 0 then
         select codigo_ubicacion
           into vNvlSup
-          from eam_ubicacion
+          from eam_ubicacion_temp
          where circuito = pcircuito
            and ubicacion = 'ALIMENTADOR PRINCIPAL';
       else
@@ -2671,7 +2702,7 @@ create or replace package body EAM_EPM is
         continue;
       end if;
     
-      insert into eam_ubicacion
+      insert into eam_ubicacion_temp
       values
         (pCircuito,
          nodo.g3e_fid,
@@ -2681,7 +2712,8 @@ create or replace package body EAM_EPM is
          5,
          vNvlSup,
          nodo.NODO_TRANSFORM,
-         'CIRCUITO ' || pcircuito || ' NODO ' || nodo.NODO_TRANSFORM);
+         'CIRCUITO ' || pcircuito || ' NODO ' || nodo.NODO_TRANSFORM,
+         vACT);
       commit;
     
     end loop;
@@ -2738,18 +2770,12 @@ create or replace package body EAM_EPM is
     vCount VARCHAR2(30);
     vPadre NUMBER(10);
     vNivel VARCHAR2(80);
+    vACT   DATE;
   
   begin
+    vACT := sysdate;
   
-    insert into eam_activos_retirados
-      select a.*
-        from eam_activos a, ccomun c
-       where a.circuito = pCircuito
-         and c.g3e_fid = a.g3e_fid
-         and c.estado = 'RETIRADO';
-    commit;
-  
-    delete from eam_activos where circuito = pCircuito;
+    delete from eam_activos_temp where circuito = pCircuito;
     commit;
   
     --Processar los codigos de los elementos
@@ -2770,7 +2796,7 @@ create or replace package body EAM_EPM is
           /* select
            count(1)
             into vCount
-            from eam_activos
+            from eam_activos_temp
            where g3e_fid = elementoCircuito.g3e_fid
              and circuito = pCircuito;
           begin
@@ -2784,7 +2810,7 @@ create or replace package body EAM_EPM is
                  and circuito = pCircuito
                  and g3e_fno = 20400;
           
-              insert into eam_activos
+              insert into eam_activos_temp
               values
                 (pCircuito,
                  elementoCircuito.g3e_fid,
@@ -2833,20 +2859,20 @@ create or replace package body EAM_EPM is
           if elementoCircuito.Segmento > 0 then
             select codigo_ubicacion
               into vNivel
-              from eam_ubicacion
+              from eam_ubicacion_temp
              where circuito = pCircuito
                and ubicacion = 'SEGMENTO'
                and g3e_fid = elementoCircuito.Fid_Padre;
           elsif elementoCircuito.Tramo > 0 then
             select codigo_ubicacion
               into vNivel
-              from eam_ubicacion
+              from eam_ubicacion_temp
              where circuito = pCircuito
                and ubicacion = 'TRAMO'
                and g3e_fid = elementoCircuito.Fid_Padre;
           end if;
         
-          insert into eam_activos
+          insert into eam_activos_temp
           values
             (pCircuito,
              elementoCircuito.g3e_fid,
@@ -2856,7 +2882,9 @@ create or replace package body EAM_EPM is
              6,
              elementoCircuito.Fid_Padre,
              elementoCircuito.Activo,
-             elementoCircuito.Ordem);
+             elementoCircuito.Ordem,
+             null,
+             vACT);
           commit;
         
         when elementoCircuito.g3e_fno = 20400 then
@@ -2864,12 +2892,12 @@ create or replace package body EAM_EPM is
         
           select codigo_ubicacion
             into vNivel
-            from eam_ubicacion
+            from eam_ubicacion_temp
            where circuito = pCircuito
              and ubicacion = 'NODO'
              and g3e_fid = elementoCircuito.G3e_Fid;
         
-          insert into eam_activos
+          insert into eam_activos_temp
           values
             (pCircuito,
              elementoCircuito.g3e_fid,
@@ -2879,7 +2907,9 @@ create or replace package body EAM_EPM is
              6,
              elementoCircuito.G3e_Fid,
              0,
-             0);
+             0,
+             null,
+             vACT);
           commit;
         
           --conductores secundarios
@@ -2888,12 +2918,12 @@ create or replace package body EAM_EPM is
             select /* parallel */
              count(1)
               into vCount
-              from eam_activos
+              from eam_activos_temp
              where g3e_fid = condSec.g3e_fid
                and circuito = pCircuito;
           
             if vCount = 0 then
-              insert into eam_activos
+              insert into eam_activos_temp
               values
                 (pCircuito,
                  condSec.g3e_fid,
@@ -2903,7 +2933,9 @@ create or replace package body EAM_EPM is
                  6,
                  elementoCircuito.G3e_Fid,
                  0,
-                 0);
+                 0,
+                 null,
+                 vACT);
               commit;
             end if;
           end loop;
@@ -2973,27 +3005,27 @@ create or replace package body EAM_EPM is
             if elementoCircuito.Segmento > 0 then
               select codigo_ubicacion
                 into vNivel
-                from eam_ubicacion
+                from eam_ubicacion_temp
                where circuito = pCircuito
                  and ubicacion = 'SEGMENTO'
                  and g3e_fid = vPadre;
             elsif elementoCircuito.Tramo > 0 then
               select codigo_ubicacion
                 into vNivel
-                from eam_ubicacion
+                from eam_ubicacion_temp
                where circuito = pCircuito
                  and ubicacion = 'TRAMO'
                  and g3e_fid = vPadre;
             elsif elementoCircuito.G3e_Fno in (17900, 20100) then
               select codigo_ubicacion
                 into vNivel
-                from eam_ubicacion
+                from eam_ubicacion_temp
                where circuito = pCircuito
                  and g3e_fid = vPadre;
             elsif elementoCircuito.Tipo = 'Corte' then
               select codigo_ubicacion
                 into vNivel
-                from eam_ubicacion
+                from eam_ubicacion_temp
                where circuito = pCircuito
                  and ubicacion = 'SEGMENTO'
                  and g3e_fid = vPadre;
@@ -3001,7 +3033,7 @@ create or replace package body EAM_EPM is
                   elementoCircuito.Tipo = 'Transferencia' then
               select codigo_ubicacion
                 into vNivel
-                from eam_ubicacion
+                from eam_ubicacion_temp
                where circuito = pCircuito
                  and ubicacion = 'TRAMO'
                  and g3e_fid = vPadre;
@@ -3012,7 +3044,7 @@ create or replace package body EAM_EPM is
               --ATENCION: Un activo no tiene padre asociado. Hay que renerar un error!
           end;
         
-          insert into eam_activos
+          insert into eam_activos_temp
           values
             (pCircuito,
              elementoCircuito.g3e_fid,
@@ -3022,7 +3054,9 @@ create or replace package body EAM_EPM is
              6,
              vPadre,
              0,
-             0);
+             0,
+             null,
+             vACT);
           commit;
         
       end case;
@@ -3031,7 +3065,7 @@ create or replace package body EAM_EPM is
   
   end;
 
-  procedure EAM_CALC_ACT_CIR(pCircuito CRED_TEN_CIR_CAT.CIRCUITO%type) is
+  procedure EAM_MANEJO_ACTIVO(pCircuito CRED_TEN_CIR_CAT.CIRCUITO%type) is
   
     --esta funcion calcula recalcula los numeros de los activos despues de la primer ejecución
     --ATENCION:  los elementos que no hacem parte de un tamos/segmento no tendrón sus activos recalculados
@@ -3039,8 +3073,8 @@ create or replace package body EAM_EPM is
   
     cursor fidsPadre(pCircuito CRED_TEN_CIR_CAT.CIRCUITO%type) is
       select t.fid_padre, u.codigo_ubicacion
-        from eam_traces t
-       inner join eam_ubicacion u
+        from eam_activos_temp t
+       inner join eam_ubicacion_temp u
           on u.g3e_fid = t.fid_padre
        where t.circuito = pCircuito
          and t.fid_padre is not null
@@ -3051,8 +3085,8 @@ create or replace package body EAM_EPM is
                         fidPadre   NUMBER,
                         pUbicacion VARCHAR2) is
       select t.activo activo_new, a.activo activo_old, t.fid_padre padre
-        from eam_traces t
-       inner join eam_activos a
+        from eam_activos_temp t
+       inner join eam_activos_all a
           on a.g3e_fid = t.g3e_fid
        where t.fid_padre = fidPadre
          and t.g3e_fno = 19000
@@ -3069,7 +3103,7 @@ create or replace package body EAM_EPM is
     select /* parallel */
      count(1)
       into vCount
-      from eam_activos
+      from eam_activos_temp
      where circuito = pCircuito;
     if vCount = 0 then
       return;
@@ -3082,7 +3116,7 @@ create or replace package body EAM_EPM is
                                       fidPadre.codigo_ubicacion) loop
         --Mirar la cantidad anterior de conductores que pertencecen al mimo fid_padre
       
-        update eam_traces
+        update eam_activos_temp
            set activo = activoPadre.activo_old
          where activo = activoPadre.activo_new
            and fid_padre = fidPadre.fid_padre
@@ -3103,13 +3137,15 @@ create or replace package body EAM_EPM is
     geom_x          float;
     geom_y          float;
     num_seq         number;
+    vACT            date;
   
   begin
+    vACT := sysdate;
   
     --limpia la tabla
-    delete from eam_ubicacion where circuito = 'PARRILLA';
+    delete from eam_ubicacion_temp where circuito = 'PARRILLA';
     commit;
-    update eam_activos
+    update eam_activos_temp
        set circuito = 'PARRILLA_O'
      where circuito = 'PARRILLA';
     commit;
@@ -3119,7 +3155,7 @@ create or replace package body EAM_EPM is
     --*****************************************************************************************
   
     --Malla Oriental
-    insert into eam_ubicacion
+    insert into eam_ubicacion_temp
       select 'PARRILLA',
              a.g3e_fid,
              a.g3e_fno,
@@ -3128,14 +3164,15 @@ create or replace package body EAM_EPM is
              '4' as nivel,
              'PARRILLA' as nivel_superior,
              'MALLAORIEN' as codigo_ubicacion,
-             'MALLA ORIENTAL' as descripcion
+             'MALLA ORIENTAL' as descripcion,
+             vACT
         from eare_fun_at a
        where nombre_area = 'PARRILLA ORIENTAL';
   
     commit;
   
     --Malla Ocidental
-    insert into eam_ubicacion
+    insert into eam_ubicacion_temp
       select 'PARRILLA',
              a.g3e_fid,
              a.g3e_fno,
@@ -3144,7 +3181,8 @@ create or replace package body EAM_EPM is
              '4' as nivel,
              'PARRILLA' as nivel_superior,
              'MALLAOCCIDEN' as codigo_ubicacion,
-             'MALLA OCCIDENTAL' as descripcion
+             'MALLA OCCIDENTAL' as descripcion,
+             vACT
         from eare_fun_at a
        where nombre_area = 'PARRILLA OCCIDENTAL';
   
@@ -3155,7 +3193,7 @@ create or replace package body EAM_EPM is
     --*****************************************************************************************
   
     --Cangrejo Oriental
-    insert into eam_ubicacion
+    insert into eam_ubicacion_temp
       select 'PARRILLA',
              a.g3e_fid,
              a.g3e_fno,
@@ -3164,14 +3202,15 @@ create or replace package body EAM_EPM is
              '5' as nivel,
              'MALLAORIEN' as nivel_superior,
              'CANGRORIE' as codigo_ubicacion,
-             'CANGREJOS ORIENTAL' as descripcion
+             'CANGREJOS ORIENTAL' as descripcion,
+             vACT
         from eare_fun_at a
        where nombre_area = 'PARRILLA ORIENTAL';
   
     commit;
   
     --Cangrejo Ocidental
-    insert into eam_ubicacion
+    insert into eam_ubicacion_temp
       select 'PARRILLA',
              a.g3e_fid,
              a.g3e_fno,
@@ -3180,7 +3219,8 @@ create or replace package body EAM_EPM is
              '5' as nivel,
              'MALLAOCCIDEN' as nivel_superior,
              'CANGROCCI' as codigo_ubicacion,
-             'CANGREJOS OCCIDENTAL' as descripcion
+             'CANGREJOS OCCIDENTAL' as descripcion,
+             vACT
         from eare_fun_at a
        where nombre_area = 'PARRILLA OCCIDENTAL';
   
@@ -3193,7 +3233,7 @@ create or replace package body EAM_EPM is
     --*****************************************************************************************
   
     --Cangrejo Oriental
-    insert into eam_activos
+    insert into eam_activos_temp
       select 'PARRILLA',
              c.g3e_fid,
              c.g3e_fno,
@@ -3202,7 +3242,9 @@ create or replace package body EAM_EPM is
              '6' as nivel,
              c.g3e_fid,
              0,
-             0
+             0,
+             null,
+             vACT
         from eare_fun_at a, eare_fun_ar ar, ecangrej_pt c
        where a.g3e_fid = ar.g3e_fid
          and sdo_contains(ar.g3e_geometry, c.g3e_geometry) = 'TRUE'
@@ -3211,7 +3253,7 @@ create or replace package body EAM_EPM is
     commit;
   
     --Cangrejo Occidental
-    insert into eam_activos
+    insert into eam_activos_temp
       select 'PARRILLA',
              c.g3e_fid,
              c.g3e_fno,
@@ -3220,7 +3262,9 @@ create or replace package body EAM_EPM is
              '6' as nivel,
              c.g3e_fid,
              0,
-             0
+             0,
+             null,
+             vACT
         from eare_fun_at a, eare_fun_ar ar, ecangrej_pt c
        where a.g3e_fid = ar.g3e_fid
          and sdo_contains(ar.g3e_geometry, c.g3e_geometry) = 'TRUE'
@@ -3268,7 +3312,7 @@ create or replace package body EAM_EPM is
                        (c.nodo1_id = i.nodo2_id and c.nodo2_id = i.nodo1_id))
                    and cond.g3e_fid not in
                        (select g3e_fid
-                          from eam_activos
+                          from eam_activos_temp
                          where circuito IN ('PARRILLA'))) loop
         contador_loop := contador_loop + 1;
       
@@ -3319,7 +3363,7 @@ create or replace package body EAM_EPM is
             begin
               select nvl(to_number(replace(ubicacion, 'TSP', '')), 0)
                 into num_seq
-                from eam_activos
+                from eam_activos_temp
                where circuito = 'PARRILLA_O'
                  and g3e_fid = j.g3e_fid;
             
@@ -3336,7 +3380,7 @@ create or replace package body EAM_EPM is
                 num_seq := eam_parrilla_seq.nextval;
             end;
             dbms_output.put_line('USED:' || num_seq);
-            insert into eam_ubicacion
+            insert into eam_ubicacion_temp
             values
               ('PARRILLA',
                j.g3e_fid,
@@ -3346,9 +3390,10 @@ create or replace package body EAM_EPM is
                5,
                'MALLAORIEN',
                'TSP' || num_seq,
-               'TRAMO PARRILLA ' || num_seq);
+               'TRAMO PARRILLA ' || num_seq,
+               vACT);
             commit;
-            insert into eam_activos
+            insert into eam_activos_temp
             values
               ('PARRILLA',
                j.g3e_fid,
@@ -3358,10 +3403,12 @@ create or replace package body EAM_EPM is
                6,
                null,
                0,
-               0);
+               0,
+               null,
+               vACT);
             commit;
           else
-            insert into eam_activos
+            insert into eam_activos_temp
             values
               ('PARRILLA',
                j.g3e_fid,
@@ -3371,7 +3418,9 @@ create or replace package body EAM_EPM is
                6,
                null,
                0,
-               0);
+               0,
+               null,
+               vACT);
             commit;
           end if;
         end if;
@@ -3391,7 +3440,7 @@ create or replace package body EAM_EPM is
             begin
               select nvl(to_number(replace(ubicacion, 'TSP', '')), 0)
                 into num_seq
-                from eam_activos
+                from eam_activos_temp
                where circuito = 'PARRILLA_O'
                  and g3e_fid = j.g3e_fid;
             
@@ -3407,7 +3456,7 @@ create or replace package body EAM_EPM is
                 num_seq := eam_parrilla_seq.nextval;
             end;
             dbms_output.put_line('USED:' || num_seq);
-            insert into eam_ubicacion
+            insert into eam_ubicacion_temp
             values
               ('PARRILLA',
                j.g3e_fid,
@@ -3417,9 +3466,10 @@ create or replace package body EAM_EPM is
                5,
                'MALLAOCCIDEN',
                'TSP' || num_seq,
-               'TRAMO PARRILLA ' || num_seq);
+               'TRAMO PARRILLA ' || num_seq,
+               vACT);
             commit;
-            insert into eam_activos
+            insert into eam_activos_temp
             values
               ('PARRILLA',
                j.g3e_fid,
@@ -3429,10 +3479,12 @@ create or replace package body EAM_EPM is
                6,
                null,
                0,
-               0);
+               0,
+               null,
+               vACT);
             commit;
           else
-            insert into eam_activos
+            insert into eam_activos_temp
             values
               ('PARRILLA',
                j.g3e_fid,
@@ -3442,7 +3494,9 @@ create or replace package body EAM_EPM is
                6,
                null,
                0,
-               0);
+               0,
+               null,
+               vACT);
             commit;
           end if;
         end if;
@@ -3461,7 +3515,7 @@ create or replace package body EAM_EPM is
                  and cond_at.tipo = 'PARRILLA'
                  and cond.g3e_fid not in
                      (select g3e_fid
-                        from eam_activos
+                        from eam_activos_temp
                        where CIRCUITO = 'PARRILLA')
                  and eam_check_conductor_parrilla(cond.g3e_fid) = 1) loop
     
@@ -3509,7 +3563,7 @@ create or replace package body EAM_EPM is
         begin
           select nvl(to_number(replace(ubicacion, 'TSP', '')), 0)
             into num_seq
-            from eam_activos
+            from eam_activos_temp
            where circuito = 'PARRILLA_O'
              and g3e_fid = j.g3e_fid;
           dbms_output.put_line(num_seq);
@@ -3521,7 +3575,7 @@ create or replace package body EAM_EPM is
             num_seq := eam_parrilla_seq.nextval;
         end;
       
-        insert into eam_ubicacion
+        insert into eam_ubicacion_temp
         values
           ('PARRILLA',
            j.g3e_fid,
@@ -3531,9 +3585,10 @@ create or replace package body EAM_EPM is
            5,
            'MALLAORIEN',
            'TSP' || num_seq,
-           'TRAMO PARRILLA ' || num_seq);
+           'TRAMO PARRILLA ' || num_seq,
+           vACT);
         commit;
-        insert into eam_activos
+        insert into eam_activos_temp
         values
           ('PARRILLA',
            j.g3e_fid,
@@ -3543,7 +3598,9 @@ create or replace package body EAM_EPM is
            6,
            null,
            0,
-           0);
+           0,
+           null,
+           vACT);
         commit;
       end if;
     
@@ -3560,7 +3617,7 @@ create or replace package body EAM_EPM is
         begin
           select nvl(to_number(replace(ubicacion, 'TSP', '')), 0)
             into num_seq
-            from eam_activos
+            from eam_activos_temp
            where circuito = 'PARRILLA_O'
              and g3e_fid = j.g3e_fid;
           dbms_output.put_line(num_seq);
@@ -3572,7 +3629,7 @@ create or replace package body EAM_EPM is
             num_seq := eam_parrilla_seq.nextval;
         end;
       
-        insert into eam_ubicacion
+        insert into eam_ubicacion_temp
         values
           ('PARRILLA',
            j.g3e_fid,
@@ -3582,9 +3639,10 @@ create or replace package body EAM_EPM is
            5,
            'MALLAOCCIDEN',
            'TSP' || num_seq,
-           'TRAMO PARRILLA ' || num_seq);
+           'TRAMO PARRILLA ' || num_seq,
+           vACT);
         commit;
-        insert into eam_activos
+        insert into eam_activos_temp
         values
           ('PARRILLA',
            j.g3e_fid,
@@ -3594,13 +3652,19 @@ create or replace package body EAM_EPM is
            6,
            null,
            0,
-           0);
+           0,
+           null,
+           vACT);
         commit;
       end if;
     end loop;
   
-    delete from eam_activos where circuito = 'PARRILLA_O';
+    delete from eam_activos_temp where circuito = 'PARRILLA_O';
     commit;
+  
+    EAM_MANEJO_NOVEDADES('PARRILLA');
+    EAM_MANEJO_RETIRADOS('PARRILLA');
+  
   end;
 
   function EAM_CHECK_CONDUCTOR_PARRILLA(fid in number) return integer is
@@ -3632,6 +3696,7 @@ create or replace package body EAM_EPM is
       from cconectividad_e
      where nodo1_id in (node1, node2)
        and g3e_fno = 21700;
+  
     select /* parallel */
      count(1)
       into countNode2
@@ -3731,11 +3796,14 @@ create or replace package body EAM_EPM is
   procedure EAM_LIMPIAR_TABLAS is
   
   begin
-    execute immediate 'truncate table eam_errors';
     --execute immediate 'truncate table eam_circuitos';
+    execute immediate 'truncate table eam_errors';
+    execute immediate 'truncate table eam_ubicacion_ret';
     execute immediate 'truncate table eam_ubicacion';
-    execute immediate 'truncate table eam_activos';
-    execute immediate 'truncate table eam_activos_retirados';
+    execute immediate 'truncate table eam_ubicacion_temp';
+    execute immediate 'truncate table eam_activos_temp';
+    execute immediate 'truncate table eam_activos_ret';
+    execute immediate 'truncate table eam_activos_all';
     execute immediate 'truncate table eam_traces';
     commit;
   
@@ -3773,8 +3841,11 @@ create or replace package body EAM_EPM is
     EAM_RESPALDAR_TABLAS;
     EAM_POBLAR_TABLA_CIRCUITOS;
     EAM_DISTRIBUIR_NOVEDADES_CIRS(1, pGrupo);
-    EAM_FLUJO_CIRS(pGrupo, timeout_min);
+    EAM_TAXONOMIA_TRANSMISION;
+    EAM_ESTRUCTURA_CIVIL;
+    EAM_CALCULAR_ACTIVOS_CIVIL;
     EAM_CARGA_PARRILLA;
+    EAM_FLUJO_CIRS(pGrupo, timeout_min);
   
   end;
 
@@ -3799,10 +3870,10 @@ create or replace package body EAM_EPM is
               union
               select distinct c.circuito,
                               nvl(tiempo, '00:01:00.000000000') tiempo
-                from reg_transacciones r,
-                     eam_circuitos     c,
-                     eam_activos       a,
-                     eam_ubicacion     u
+                from reg_transacciones  r,
+                     eam_circuitos      c,
+                     eam_activos_temp   a,
+                     eam_ubicacion_temp u
                where r.atributo like '%CIRCUITO%'
                  and r.fid = a.g3e_fid(+)
                  and u.g3e_fid(+) = r.fid
@@ -3851,26 +3922,46 @@ create or replace package body EAM_EPM is
 
   procedure EAM_RESPALDAR_TABLAS is
   begin
-    execute immediate 'truncate table eam_ubicacion_bk';
-    insert into eam_ubicacion_bk
-      select * from eam_ubicacion;
-    commit;
-    execute immediate 'truncate table eam_ubicacion_retirados_bk';
-    insert into eam_ubicacion_retirados_bk
-      select * from eam_ubicacion_retirados;
-    commit;
-    execute immediate 'truncate table eam_activos_bk';
-    insert into eam_activos_bk
-      select * from eam_activos;
-    commit;
-    execute immediate 'truncate table eam_activos_retirados_bk';
-    insert into eam_activos_retirados_bk
-      select * from eam_activos_retirados;
-    commit;
-    execute immediate 'truncate table eam_circuitos_bk';
-    insert into eam_circuitos_bk
-      select * from eam_circuitos;
-    commit;
+    begin
+      execute immediate 'drop table eam_ubicacion_bk';
+    end;
+  
+    begin
+      execute immediate 'create table eam_ubicacion_bk as select * from eam_ubicacion_temp';
+    end;
+  
+    begin
+      execute immediate 'drop table eam_ubicacion_retirados_bk';
+    end;
+  
+    begin
+      execute immediate 'create table eam_ubicacion_retirados_bk as select * from eam_ubicacion_retirados';
+    end;
+  
+    begin
+      execute immediate 'drop table eam_activos_bk';
+    end;
+  
+    begin
+      execute immediate 'create table eam_activos_bk as select * from eam_activos_temp';
+    end;
+  
+    begin
+      execute immediate 'drop table eam_activos_retirados_bk';
+    end;
+  
+    begin
+      execute immediate 'create table eam_activos_retirados_bk as select * from eam_activos_retirados';
+    end;
+  
+    begin
+      execute immediate 'drop table eam_circuitos_bk';
+    end;
+  
+    begin
+      execute immediate 'create table eam_circuitos_bk as select * from eam_circuitos';
+    end;
+  
   end;
 
   procedure EAM_ESTRUCTURA_CIVIL is
@@ -3888,13 +3979,13 @@ create or replace package body EAM_EPM is
   
   begin
   
-    delete from eam_ubicacion where circuito = 'ESTRUCTURA';
+    delete from eam_ubicacion_temp where circuito = 'ESTRUCTURA';
     commit;
   
     /* Carga la ubicacion de nivel 4: Region */
   
     for region in regiones loop
-      insert into eam_ubicacion
+      insert into eam_ubicacion_temp
         (circuito,
          g3e_fid,
          g3e_fno,
@@ -3922,9 +4013,9 @@ create or replace package body EAM_EPM is
     for subregion in subregiones loop
       select codigo_ubicacion
         into vCodRegion
-        from eam_ubicacion
+        from eam_ubicacion_temp
        where g3e_fid = subregion.fid_padre;
-      insert into eam_ubicacion
+      insert into eam_ubicacion_temp
         (circuito,
          g3e_fid,
          g3e_fno,
@@ -3959,7 +4050,7 @@ create or replace package body EAM_EPM is
                 from CCOMUN COM
                inner join EARE_FUN_AT AREA
                   on COM.SUBREGION = AREA.NOMBRE_AREA
-               inner join EAM_UBICACION UBICA
+               inner join eam_ubicacion_temp UBICA
                   on UBICA.G3E_FID = AREA.G3E_FID
                where COM.G3E_FNO in (22800, 17400, 17300, 17100)
                  and UBICA.CODIGO_UBICACION is not null
@@ -4002,7 +4093,7 @@ create or replace package body EAM_EPM is
         end if;
       end if;
     
-      insert into eam_activos
+      insert into eam_activos_temp
         (CIRCUITO,
          G3E_FID,
          G3E_FNO,
@@ -4027,6 +4118,10 @@ create or replace package body EAM_EPM is
     end loop;
     commit;
   
+    EAM_MANEJO_ACTIVO('ESTRUCTURA');
+    EAM_MANEJO_NOVEDADES('ESTRUCTURA');
+    EAM_MANEJO_RETIRADOS('ESTRUCTURA');
+  
   end;
 
   procedure EAM_TAXONOMIA_TRANSMISION is
@@ -4050,10 +4145,15 @@ create or replace package body EAM_EPM is
     vLinea  number(2);
     vActivo number(10);
     vOrdem  number(5);
-    --vCount  number(3);
+    vCount  number(3);
     vCorte  elementos_corte;
-  begin
+    vACT    date;
   
+    type arrLinea is table of varchar2(100);
+    lineas arrLinea := arrLinea();
+  
+  begin
+    vACT := sysdate;
     --Corredores
     for corredor in (select distinct corredor_nro
                        from econ_tra_at
@@ -4065,7 +4165,7 @@ create or replace package body EAM_EPM is
       
         --Ubicaciones
         if vLinea = 1 then
-          insert into eam_ubicacion
+          insert into eam_ubicacion_temp
           values
             (linea.circuito,
              linea.g3e_fid,
@@ -4075,9 +4175,10 @@ create or replace package body EAM_EPM is
              4,
              'CORREDORES',
              'COR-' || corredor.corredor_nro,
-             'CORREDOR ' || corredor.corredor_nro);
+             'CORREDOR ' || corredor.corredor_nro,
+             vACT);
         
-          insert into eam_ubicacion
+          insert into eam_ubicacion_temp
           values
             (linea.circuito,
              linea.g3e_fid,
@@ -4087,11 +4188,12 @@ create or replace package body EAM_EPM is
              5,
              'COR-' || corredor.corredor_nro,
              'EST-' || corredor.corredor_nro,
-             'ESTRUCTURAS CORREDOR ' || corredor.corredor_nro);
+             'ESTRUCTURAS CORREDOR ' || corredor.corredor_nro,
+             vACT);
           commit;
         end if;
       
-        insert into eam_ubicacion
+        insert into eam_ubicacion_temp
         values
           (linea.circuito,
            linea.g3e_fid,
@@ -4102,10 +4204,25 @@ create or replace package body EAM_EPM is
            'COR-' || corredor.corredor_nro,
            'LIN-' || linea.cod_linea,
            'LINEA ' || linea.cod_linea || ' CORREDOR ' ||
-           corredor.corredor_nro);
+           corredor.corredor_nro,
+           vACT);
         commit;
       
         --Activos
+        vCount := 0;
+        for i in 1 .. lineas.count loop
+          if lineas(i) = linea.circuito then
+            vCount := 1;
+          end if;
+        end loop;
+      
+        if vCount = 1 then
+          continue;
+        else
+          lineas.extend();
+          lineas(lineas.count) := linea.circuito;
+        end if;
+      
         delete from eam_traces where circuito = linea.circuito;
         commit;
         vCorte  := eam_trace_cir(linea.circuito);
@@ -4113,14 +4230,14 @@ create or replace package body EAM_EPM is
         vOrdem  := 0;
       
         --Conductores Transmision
-        for conducTrans in (select *
+        for conducTrans in (select circuito, G3e_Fid, g3e_fno
                               from eam_traces
                              where circuito = linea.circuito
                                and g3e_fno = 18900
                              order by g3e_traceorder asc) loop
         
           vOrdem := vOrdem + 1;
-          insert into eam_activos
+          insert into eam_activos_temp
           values
             (conducTrans.circuito,
              conducTrans.G3e_Fid,
@@ -4130,13 +4247,15 @@ create or replace package body EAM_EPM is
              6,
              linea.g3e_fid,
              vActivo,
-             vOrdem);
+             vOrdem,
+             null,
+             vACT);
           commit;
         
         end loop; --Conductores de Trasmision
       
         --Camaras
-        for camara in (select cam.*
+        for camara in (select cam.g3e_fid, cam.g3e_fno
                          from ecamara_at cam
                         inner join ccontenedor con
                            on con.g3e_fid = cam.g3e_fid
@@ -4146,25 +4265,28 @@ create or replace package body EAM_EPM is
                           and con.g3e_ownerfid in
                               (select g3e_fid
                                  from eam_traces
-                                where circuito = linea.circuito)) loop
+                                where circuito = linea.circuito)
+                        group by cam.g3e_fid, cam.g3e_fno) loop
         
-          insert into eam_activos
+          insert into eam_activos_temp
           values
             (linea.circuito,
              camara.G3e_Fid,
              camara.g3e_fno,
              'CAMARA',
-             null,
-             7,
+             'EST-' || corredor.corredor_nro,
+             6,
              linea.g3e_fid,
              null,
-             null);
+             null,
+             null,
+             vACT);
           commit;
         
         end loop; --Camara
       
         --Ducto
-        for ducto in (select duc.*
+        for ducto in (select duc.g3e_fid, duc.g3e_fno
                         from educto_at duc
                        inner join ccontenedor con
                           on con.g3e_fid = duc.g3e_fid
@@ -4174,25 +4296,28 @@ create or replace package body EAM_EPM is
                          and con.g3e_ownerfid in
                              (select g3e_fid
                                 from eam_traces
-                               where circuito = linea.circuito)) loop
+                               where circuito = linea.circuito)
+                       group by duc.g3e_fid, duc.g3e_fno) loop
         
-          insert into eam_activos
+          insert into eam_activos_temp
           values
             (linea.circuito,
              ducto.G3e_Fid,
              ducto.g3e_fno,
              'DUCTO',
-             null,
+             'EST-' || corredor.corredor_nro,
              7,
              linea.g3e_fid,
              null,
-             null);
+             null,
+             null,
+             vACT);
           commit;
         
         end loop; --Ductos
       
         --Canalización
-        for canalizacion in (select can.*
+        for canalizacion in (select can.g3e_fid, can.g3e_fno
                                from ecanaliz_at can
                               inner join ccontenedor con
                                  on con.g3e_fid = can.g3e_fid
@@ -4202,25 +4327,28 @@ create or replace package body EAM_EPM is
                                 and con.g3e_ownerfid in
                                     (select g3e_fid
                                        from eam_traces
-                                      where circuito = linea.circuito)) loop
+                                      where circuito = linea.circuito)
+                              group by can.g3e_fid, can.g3e_fno) loop
         
-          insert into eam_activos
+          insert into eam_activos_temp
           values
             (linea.circuito,
              canalizacion.G3e_Fid,
              canalizacion.g3e_fno,
              'CANALIZACION',
-             null,
+             'EST-' || corredor.corredor_nro,
              7,
              linea.g3e_fid,
              null,
-             null);
+             null,
+             null,
+             vACT);
           commit;
         
         end loop; --Canalizacion
       
         --Poste
-        for poste in (select pos.*
+        for poste in (select pos.g3e_fid, pos.g3e_fno
                         from eposte_at pos
                        inner join ccontenedor con
                           on con.g3e_ownerfid = pos.g3e_fid
@@ -4230,25 +4358,28 @@ create or replace package body EAM_EPM is
                          and con.g3e_fid in
                              (select g3e_fid
                                 from eam_traces
-                               where circuito = linea.circuito)) loop
+                               where circuito = linea.circuito)
+                       group by pos.g3e_fid, pos.g3e_fno) loop
         
-          insert into eam_activos
+          insert into eam_activos_temp
           values
             (linea.circuito,
              poste.G3e_Fid,
              poste.g3e_fno,
              'POSTE',
-             null,
-             7,
+             'EST-' || corredor.corredor_nro,
+             6,
              linea.g3e_fid,
              null,
-             null);
+             null,
+             null,
+             vACT);
           commit;
         
         end loop; --Poste
       
         --Torre
-        for torre in (select tor.*
+        for torre in (select tor.g3e_fid, tor.g3e_fno
                         from etor_trm_at tor
                        inner join ccontenedor con
                           on con.g3e_ownerfid = tor.g3e_fid
@@ -4258,25 +4389,28 @@ create or replace package body EAM_EPM is
                          and con.g3e_fid in
                              (select g3e_fid
                                 from eam_traces
-                               where circuito = linea.circuito)) loop
+                               where circuito = linea.circuito)
+                       group by tor.g3e_fid, tor.g3e_fno) loop
         
-          insert into eam_activos
+          insert into eam_activos_temp
           values
             (linea.circuito,
              torre.G3e_Fid,
              torre.g3e_fno,
              'TORRE',
-             null,
+             'EST-' || corredor.corredor_nro,
              7,
              linea.g3e_fid,
              null,
-             null);
+             null,
+             null,
+             vACT);
           commit;
         
         end loop; --Torre
       
         --Portico
-        for torre in (select tor.*
+        for torre in (select tor.g3e_fid, tor.g3e_fno
                         from etor_trm_at tor
                        inner join ccontenedor con
                           on con.g3e_ownerfid = tor.g3e_fid
@@ -4286,48 +4420,189 @@ create or replace package body EAM_EPM is
                          and con.g3e_fid in
                              (select g3e_fid
                                 from eam_traces
-                               where circuito = linea.circuito)) loop
+                               where circuito = linea.circuito)
+                       group by tor.g3e_fid, tor.g3e_fno) loop
         
-          insert into eam_activos
+          insert into eam_activos_temp
           values
             (linea.circuito,
              torre.G3e_Fid,
              torre.g3e_fno,
              'PORTICO',
-             null,
+             'EST-' || corredor.corredor_nro,
              7,
              linea.g3e_fid,
              null,
-             null);
+             null,
+             null,
+             vACT);
           commit;
         
         end loop; --Portico
       
         --Pararrayos
-        for para in (select *
+        for para in (select g3e_fid, g3e_fno
                        from cconectividad_e
                       where circuito = linea.circuito
-                        and g3e_fno = 20100 and tension > 110) loop
+                        and g3e_fno = 20100
+                        and tension > 110
+                      group by g3e_fid, g3e_fno) loop
         
-          insert into eam_activos
+          insert into eam_activos_temp
           values
             (linea.circuito,
              para.G3e_Fid,
              para.g3e_fno,
              'PARARRAYOS',
-             null,
+             'LIN-' || linea.cod_linea,
              7,
              linea.g3e_fid,
              null,
-             null);
+             null,
+             null,
+             vACT);
           commit;
         
         end loop; --Pararrayos
       
+        if vLinea = 1 then
+          EAM_MANEJO_ACTIVO(linea.circuito);
+          EAM_MANEJO_NOVEDADES(linea.circuito);
+          EAM_MANEJO_RETIRADOS(linea.circuito);
+        end if;
       
       end loop; --Linea
     
     end loop; --Corredores
+  
+  end;
+
+  procedure EAM_MANEJO_RETIRADOS(pCircuito in VARCHAR2) is
+    vFechaEjec date;
+  begin
+    vFechaEjec := sysdate;
+  
+    insert into eam_activos_ret
+      (activo,
+       activo_nombre,
+       circuito,
+       descripcion,
+       fecha_act,
+       fid_padre,
+       g3e_fid,
+       g3e_fno,
+       nivel,
+       ordem,
+       ubicacion)
+      select ea.activo,
+             ea.activo_nombre,
+             ea.circuito,
+             ea.descripcion,
+             vFechaEjec,
+             ea.fid_padre,
+             ea.g3e_fid,
+             ea.g3e_fno,
+             ea.nivel,
+             ea.ordem,
+             ea.ubicacion
+        from eam_activos_all ea
+       inner join ccomun c
+          on (c.g3e_fid = ea.g3e_fid and c.g3e_fno = ea.g3e_fno)
+       where c.estado = 'RETIRADO'
+         and ea.circuito = pCircuito
+         and not exists (select g3e_fid
+                from eam_activos_ret
+               where g3e_fid = ea.g3e_fid
+                 and g3e_fno = ea.g3e_fno);
+  
+    commit;
+  
+    --Actualizar tabla eam_activos_all = elementos en operacion + retirados - returados parciales
+    delete from eam_activos_all where circuito = pCircuito;
+    commit;
+  
+    -- los que no fueron retirados
+    insert into eam_activos_all
+      select ea.*
+        from eam_activos_temp ea
+       where not exists
+       (select g3e_fid from eam_activos_ret where g3e_fid = ea.g3e_fid)
+         and ea.circuito = pCircuito;
+  
+    commit;
+  
+    -- los que no son retiros lineares agrupados
+    insert into eam_activos_all
+      select *
+        from eam_activos_ret
+       where nvl(activo, 0) = 0
+         and circuito = pCircuito;
+  
+    commit;
+  
+    -- los que son retiros lineares completos
+    insert into eam_activos_all
+      select *
+        from eam_activos_ret
+       where activo not in
+             (select distinct activo
+                from eam_activos_all
+               where activo in (select distinct activo
+                                  from eam_activos_ret
+                                 where nvl(activo, 0) != 0))
+         and nvl(activo, 0) != 0
+         and circuito = pCircuito;
+    commit;
+  
+  end;
+
+  procedure EAM_MANEJO_NOVEDADES(pCircuito in VARCHAR2) is
+    vFechaEjec date;
+  begin
+  
+    select sysdate into vFechaEjec from dual;
+    update eam_activos_temp
+       set fecha_act = vFechaEjec
+     where circuito = pCircuito;
+    commit;
+    update eam_ubicacion_temp
+       set fecha_act = vFechaEjec
+     where circuito = pCircuito;
+    commit;
+  
+    --Manejo de la fecha de actualizacion
+    merge into eam_activos_temp nuevo
+    using eam_activos_all viejo
+    on (viejo.g3e_fid = nuevo.g3e_fid)
+    when matched then
+      update
+         set nuevo.fecha_act = viejo.fecha_act
+       where (nvl(nuevo.activo_nombre, 0) = nvl(viejo.activo_nombre, 0) and
+             nvl(nuevo.ubicacion, 0) = nvl(viejo.ubicacion, 0) and
+             nvl(nuevo.fid_padre, 0) = nvl(viejo.fid_padre, 0))
+         and nuevo.g3e_fno = viejo.g3e_fno
+         and nuevo.circuito = pCircuito;
+    commit;
+  
+    merge into eam_ubicacion_temp nuevo
+    using eam_ubicacion viejo
+    on (viejo.g3e_fid = nuevo.g3e_fid)
+    when matched then
+      update
+         set nuevo.fecha_act = viejo.fecha_act
+       where (nvl(nuevo.codigo, 0) = nvl(viejo.codigo, 0) and
+             nvl(nuevo.codigo_ubicacion, 0) =
+             nvl(viejo.codigo_ubicacion, 0) and
+             nvl(nuevo.nivel_superior, 0) = nvl(viejo.nivel_superior, 0))
+         and nuevo.g3e_fno = viejo.g3e_fno
+         and nuevo.circuito = pCircuito;
+    commit;
+  
+    delete from eam_ubicacion where circuito = pCircuito;
+    commit;
+    insert into eam_ubicacion
+      select * from eam_ubicacion_temp where circuito = pCircuito;
+    commit;
   
   end;
 
