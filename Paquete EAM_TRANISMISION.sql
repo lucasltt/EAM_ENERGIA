@@ -17,6 +17,15 @@ create or replace package EAM_TRANSMISION is
   -- 1) Ajuste del Código de línea en join incorrecto.  
   -- 2) Ajuste de la Relación entre torres y corredores.
   -- 3) Ajuste de la Descripción nula en torres
+  
+  
+  -- Modificación
+  -- Version : 3.1.2
+  -- Author  : Lucas Turchet
+  -- Created : 11/05/2018
+  -- Purpose : Ajustes
+  -- Notas de la versión
+  -- 1) Cambio de como se generar el numero del activo
 
   -- Ejecuta la taxonomia de Transmisión
   procedure EAM_TAXONOMIA_TRANSMISION;
@@ -47,6 +56,7 @@ create or replace package body EAM_TRANSMISION is
               having count(codigo) = 1
                group by codigo) m --Codigos de linea en solo un corredor
        where con.circuito = k.circuito
+         and con.estado != 'PLANEACION'
          and k.cod_linea = m.cod_linea
          and con.g3e_fno = 18800
        order by k.cod_linea asc;
@@ -113,7 +123,7 @@ create or replace package body EAM_TRANSMISION is
              linea.g3e_fid,
              linea.g3e_fno,
              corredor.corredor_nro,
-             'ESTRUCTURAS',
+             'ESTRUCTURA CORREDOR',
              5,
              'COR-' || corredor.corredor_nro,
              'EST-' || corredor.corredor_nro,
@@ -155,7 +165,7 @@ create or replace package body EAM_TRANSMISION is
         delete from eam_traces where circuito = linea.circuito;
         commit;
         vCorte  := eam_energia.eam_trace_cir(linea.circuito);
-        vActivo := eam_activo.nextval;
+        select ora_hash(linea.cod_linea, 777777) into vActivo from dual;
         vOrdem  := 0;
       
         --Conductores Transmision
