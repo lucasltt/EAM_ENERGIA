@@ -1,16 +1,24 @@
 create or replace package EAM_TRANSMISION is
 
-
-  -- Modificaci髇
+  -- Modificaci贸n
   -- Version : 3.1.0
   -- Author  : Lucas Turchet
   -- Created : 09/05/2018
   -- Purpose : Nuevos Funcionalidades
-  -- Notas de la versi髇
+  -- Notas de la versi贸n
   -- 1)  Taxonomia de Tranismision
 
+  -- Modificaci贸n
+  -- Version : 3.1.1
+  -- Author  : Lucas Turchet
+  -- Created : 11/05/2018
+  -- Purpose : Ajustes
+  -- Notas de la versi贸n
+  -- 1) Ajuste del C贸digo de l铆nea en join incorrecto.  
+  -- 2) Ajuste de la Relaci贸n entre torres y corredores.
+  -- 3) Ajuste de la Descripci贸n nula en torres
 
-  -- Ejecuta la taxonomia de Transmisi髇
+  -- Ejecuta la taxonomia de Transmisi贸n
   procedure EAM_TAXONOMIA_TRANSMISION;
 
 end EAM_TRANSMISION;
@@ -20,19 +28,47 @@ create or replace package body EAM_TRANSMISION is
   
     cursor cInterruptorLineas(corredor VARCHAR2) is
       select con.g3e_fno, con.g3e_fid, k.circuito, k.cod_linea
+        from cconectividad_e con,
+             (select distinct c.circuito, t.codigo cod_linea
+                from econ_tra_at t,
+                     cconectividad_e c,
+                     (select cod_linea
+                        from (select distinct t.codigo cod_linea, c.circuito
+                                from econ_tra_at t, cconectividad_e c
+                               where t.g3e_fid = c.g3e_fid
+                                 and corredor_nro = corredor)
+                      having count(cod_linea) = 1
+                       group by cod_linea) lin
+               where t.g3e_fid = c.g3e_fid
+                 and lin.cod_linea = t.codigo) k, --codigos de linea consistentes con circuitos
+             (select codigo cod_linea
+                from (select distinct t.codigo, t.corredor_nro
+                        from econ_tra_at t)
+              having count(codigo) = 1
+               group by codigo) m --Codigos de linea en solo un corredor
+       where con.circuito = k.circuito
+         and k.cod_linea = m.cod_linea
+         and con.g3e_fno = 18800
+       order by k.cod_linea asc;
+  
+    /*
+    cursor cInterruptorLineas(corredor VARCHAR2) is
+      select con.g3e_fno, con.g3e_fid, k.circuito, k.cod_linea
         from cconectividad_e con
        inner join (select conn.circuito, corr.cod_linea
                      from cconectividad_e conn
-                    inner join (select distinct codigo as cod_linea
+                    inner join (select g3e_fid, codigo as cod_linea
                                  from econ_tra_at
-                                where corredor_nro = corredor) corr
-                       on corr.cod_linea = conn.codigo
+                                where corredor_nro = corredor
+                                group by g3e_fid, codigo) corr
+                       on corr.g3e_fid = conn.g3e_fid
                     where conn.tipo_red = 'TRANSMISION'
                       and circuito is not null
                     group by conn.circuito, corr.cod_linea) k
           on k.circuito = con.circuito
        where con.g3e_fno = 18800
        order by k.cod_linea asc;
+       */
   
     vLinea  number(2);
     vActivo number(10);
@@ -40,6 +76,7 @@ create or replace package body EAM_TRANSMISION is
     vCount  number(3);
     vCorte  elementos_corte;
     vACT    date;
+    vDesc   varchar2(100);
   
     type arrLinea is table of varchar2(100);
     lineas arrLinea := arrLinea();
@@ -208,7 +245,7 @@ create or replace package body EAM_TRANSMISION is
         
         end loop; --Ductos
       
-        --Canalizaci髇
+        --Canalizaci贸n
         for canalizacion in (select can.g3e_fid, can.g3e_fno
                                from ecanaliz_at can
                               inner join ccontenedor con
@@ -273,16 +310,14 @@ create or replace package body EAM_TRANSMISION is
         --Torre
         for torre in (select tor.g3e_fid, tor.g3e_fno
                         from etor_trm_at tor
-                       inner join ccontenedor con
-                          on con.g3e_ownerfid = tor.g3e_fid
-                         and con.g3e_ownerfno = tor.g3e_fno
                        where tor.clase_torre != 'PORTICO'
-                         and con.g3e_fno = 18900
-                         and con.g3e_fid in
-                             (select g3e_fid
-                                from eam_traces
-                               where circuito = linea.circuito)
+                         and tor.corredor_nro = corredor.corredor_nro
                        group by tor.g3e_fid, tor.g3e_fno) loop
+        
+          select LISTAGG(nro_torre_linea || '-LINEA ' || codigo_linea, ';') within group(order by codigo_linea)
+            into vDesc
+            from etor_trm_nro_at
+           where g3e_fid = torre.g3e_fid;
         
           insert into eam_activos_temp
           values
@@ -295,7 +330,7 @@ create or replace package body EAM_TRANSMISION is
              linea.g3e_fid,
              null,
              null,
-             null,
+             vDESC,
              vACT);
           commit;
         
@@ -304,15 +339,8 @@ create or replace package body EAM_TRANSMISION is
         --Portico
         for torre in (select tor.g3e_fid, tor.g3e_fno
                         from etor_trm_at tor
-                       inner join ccontenedor con
-                          on con.g3e_ownerfid = tor.g3e_fid
-                         and con.g3e_ownerfno = tor.g3e_fno
                        where tor.clase_torre = 'PORTICO'
-                         and con.g3e_fno = 18900
-                         and con.g3e_fid in
-                             (select g3e_fid
-                                from eam_traces
-                               where circuito = linea.circuito)
+                         and tor.corredor_nro = corredor.corredor_nro
                        group by tor.g3e_fid, tor.g3e_fno) loop
         
           insert into eam_activos_temp
