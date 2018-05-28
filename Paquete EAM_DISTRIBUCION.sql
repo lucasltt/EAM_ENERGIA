@@ -8,56 +8,56 @@ create or replace package EAM_DISTRIBUCION is
   --Incluye cambios parrilla (conservacion de  id, nombres de ubicaciones y correcciones relacionadas con tipo=PARRILLA en circuitos y parrilla)
   --No incluye activos lineales retirados  y consolidacion de activos
 
-  -- Creación
+  -- CreaciÃ³n
   -- Version : 1.0
   -- Author  : Lucas Turchet
   -- Created : 05/05/2017
-  -- Purpose : Disponibilización de Activos para Integración con EAM
+  -- Purpose : DisponibilizaciÃ³n de Activos para IntegraciÃ³n con EAM
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 1.1
   -- Author  : Lucas Turchet
   -- Created : 22/05/2017
-  -- Purpose : Cambios en la reglas de parrilla y circuitos sin segmentación
+  -- Purpose : Cambios en la reglas de parrilla y circuitos sin segmentaciÃ³n
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 1.1.1
   -- Author  : Lucas Turchet
   -- Created : 26/05/2017
   -- Purpose : Ajustes para no quedar en loop infinito en los traces
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 1.2
   -- Author  : Lucas Turchet
   -- Created : 08/06/2017
   -- Purpose : Ajustes en las reglas de identificacion de activos
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 1.3
   -- Author  : Lucas Turchet
   -- Created : 09/06/2017
-  -- Purpose : Ajustes de optimización de desenpno
+  -- Purpose : Ajustes de optimizaciÃ³n de desenpno
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 1.4
   -- Author  : Lucas Turchet
   -- Created : 20/06/2017
   -- Purpose : Ajustes de errores y mejorias en en manejo de expciones
-  -- Notas de la versión
-  -- 1)  Mejoria en la descripción de los errores en la tabla eam_circuitos
-  -- 2)  Creación de una excepción de circuito sin interruptor
-  -- 3)  Creación de una excepción al tener mós de un interruptor en el trace del circuito
-  -- 4)  Si hay excpeciones durante la ejecución de un circuito,
+  -- Notas de la versiÃ³n
+  -- 1)  Mejoria en la descripciÃ³n de los errores en la tabla eam_circuitos
+  -- 2)  CreaciÃ³n de una excepciÃ³n de circuito sin interruptor
+  -- 3)  CreaciÃ³n de una excepciÃ³n al tener mÃ³s de un interruptor en el trace del circuito
+  -- 4)  Si hay excpeciones durante la ejecuciÃ³n de un circuito,
   --     borra los registros procesados de las tablas de trace, ubicacion y activos
-  -- 5)  Opción para borrar los resultados de la tabla de eam_trace despues
+  -- 5)  OpciÃ³n para borrar los resultados de la tabla de eam_trace despues
   --     del flujo del circuito. El valor defecto 1 (borrar) mantene
   --     la tabla limpia y mejora el disempeno
   -- 6)  La funcion eam_flujo_cirs mira los circuitos insertados
   --     en la tabla eam_circuitos y no mas en la cred_ten_cir_cat
-  -- 7)  Creación de un grupo para ejecución paralela en la tabla eam_circuitos y en la función
+  -- 7)  CreaciÃ³n de un grupo para ejecuciÃ³n paralela en la tabla eam_circuitos y en la funciÃ³n
   --     eam_flujo_cirs
   -- 8)  Ajustes de error "No data found" por cuenta del FID padre invalido
-  -- 9)  Ajustes en la identificación de los tramos
+  -- 9)  Ajustes en la identificaciÃ³n de los tramos
   -- 10) Ajustes en la funcion eam_conductores para que no tenga muchos cursores abiertos
   -- 11) La funcion EAM_TRACE_CIR limpia registros duplicados del trace
   -- 12) Ajustes de ubicaciones duplicadas
@@ -66,95 +66,95 @@ create or replace package EAM_DISTRIBUCION is
   --     pero sigue el proceso del circuito. Los errores se quedan el la tabla eam_errors
   -- 14) La funcion eam_flujo_cirs tiene el resultado "EXCEPCION"
   --     que es cuando hube un error fatal en el circuito y NO logro a lo procesar
-  -- 15) Creado ERROR 'Elemento sin nodo_ubicacion' en la función eam_trace_cir
+  -- 15) Creado ERROR 'Elemento sin nodo_ubicacion' en la funciÃ³n eam_trace_cir
   --     que ocure cuando un elemento de corte no tiene poblado el nodo_ubicacion
   -- 16) Ajustado las llamadas de los traces de segmento, ramales y tramos en la
   --     funcion EAM_GRUPO_CIR para que incluya los transformadores
   --     en el mismo nodo donde empeza el elemento de Corte.
-  -- 17) Ajustado los registros donde en la tabla de activos el atributo ubicación
-  --     (código de la ubicación padre) y fid_padre no correponden  al mismo
+  -- 17) Ajustado los registros donde en la tabla de activos el atributo ubicaciÃ³n
+  --     (cÃ³digo de la ubicaciÃ³n padre) y fid_padre no correponden  al mismo
   --     elemento en la tabla de ubicaciones
   -- 18) La ubicacion de los activos de transformadores se identifica por nodo_tranfo
   --     y no mas por el padre del ramal/segmento/tramo
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 1.5
   -- Author  : Lucas Turchet
   -- Created : 03/07/2017
   -- Purpose : Ajustes de errores
-  -- Notas de la versión
-  -- 1)  Correcicón del valor del nivel_superior en las ubicaciones de parrilla
-  -- 2)  Corrección del valor de la ubicación de los activos de parrilla
+  -- Notas de la versiÃ³n
+  -- 1)  CorrecicÃ³n del valor del nivel_superior en las ubicaciones de parrilla
+  -- 2)  CorrecciÃ³n del valor de la ubicaciÃ³n de los activos de parrilla
   -- 3)  Correcion ubicaciones duplicads
   -- 4)  Correcion activos
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 1.6
   -- Author  : Lucas Turchet
   -- Created : 10/07/2017
   -- Purpose : Ajustes de errores
-  -- Notas de la versión
+  -- Notas de la versiÃ³n
   -- 1)  Elementos de corte que no tienen ningun conductor ahora son insertador
   --     en las tablas eam_ubicacion y eam_activos. Para los elementos de corte
   --     del alimentador, se inserta un tramo, para los de segmento, se inserta un
   --     segmento y un ramal
-  -- 2)  Las Luminarias no se cargan mós como activos
+  -- 2)  Las Luminarias no se cargan mÃ³s como activos
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 1.7
   -- Author  : Lucas Turchet
   -- Created : 20/07/2017
   -- Purpose : Ajustes de errores
-  -- Notas de la versión
+  -- Notas de la versiÃ³n
   -- 1)  Correcion de elementos con el fid_padre <> codigo_ubicacion
   -- 2)  La tabla eam_errors tiene el fno
   -- 3)  Genera error de conductores sin tramo/segmento
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 1.8
   -- Author  : Lucas Turchet
   -- Created : 01/08/2017
   -- Purpose : Ajustes de errores
-  -- Notas de la versión
-  -- 1)  Cambio en la función EAM_FLUJO_CIRS para que solo ejecute el flujo
+  -- Notas de la versiÃ³n
+  -- 1)  Cambio en la funciÃ³n EAM_FLUJO_CIRS para que solo ejecute el flujo
   --     de los circuitos que tuvieron cambio en la tabla REG_TRANSACCION
-  -- 2)  Si un circuito tiene mós de uno interruptor con el mismo circuiti_entrada,
+  -- 2)  Si un circuito tiene mÃ³s de uno interruptor con el mismo circuiti_entrada,
   --     se ejecuta el trace desde lo interruptor con ESTADO OPERATIVO
-  -- 3)  Los interruptores no son mós considerados activos
+  -- 3)  Los interruptores no son mÃ³s considerados activos
   -- 4)  Se consideran interruptores que tiene el circuito_salida = circuito
   --     como un elemento de transferencia
   -- 5)  No se procesa circuitos de TRASMISION
   -- 6) Funcion para poblar la tabla EAM_CIRCUITOS
   -- 7) Funcion EAM_FLUJO que hace el flujo del circuito y de la parrilla
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 1.9
   -- Author  : Lucas Turchet
   -- Created : 26/10/2017
   -- Purpose : Loop Infinito
-  -- Notas de la versión
-  -- 1)  Se inseró um monitoreo de tiempo para que salga del procedimiento caso
+  -- Notas de la versiÃ³n
+  -- 1)  Se inserÃ³ um monitoreo de tiempo para que salga del procedimiento caso
   --     tenga un loop infinito
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 2.0
   -- Author  : Lucas Turchet
   -- Created :01/12/2017
   -- Purpose : Mejorias
-  -- Notas de la versión
-  -- 1)  Corrección para mantener el mismo número secuencial de la ubiacion depues
-  --     de la primer ejecución
+  -- Notas de la versiÃ³n
+  -- 1)  CorrecciÃ³n para mantener el mismo nÃ³mero secuencial de la ubiacion depues
+  --     de la primer ejecuciÃ³n
   -- 2)  Timeout parametizable
   -- 3)  Se inseta errores con los datos de la red en caso de loop infinito
-  -- 4)  Novedades más rapida
+  -- 4)  Novedades mÃ³s rapida
   -- 5)  Pobla la tabla eam_activos_retirados con los elementos retirados
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 2.1
   -- Author  : Lucas Turchet y Maria E. Mora
   -- Created :05/12/2017
   -- Purpose : Mejorias
-  -- Notas de la versión
+  -- Notas de la versiÃ³n
   -- 1)  Cambio en el procedimiento  EAM_FLUJO_CIRS para que  ejecute el flujo
   --     de los circuitos que pertenecen al grupo indicado como parametro
   -- 2)  Cambio en el procedimiento POBLAR_TABLA_CIRCUITOS para incluir un
@@ -169,19 +169,19 @@ create or replace package EAM_DISTRIBUCION is
   -- 6)  Creacion del procedimiento  EAM_FLUJO_CIRS_PARALELO para ejecutar
   --     el flujo de Circuitos para todos los circuitos en 10 grupos  paralelos
 
-  -- Modificación
+  -- ModificaciÃ³n
   -- Version : 3.1.0
   -- Author  : Lucas Turchet
   -- Created : 09/05/2018
   -- Purpose : Nuevos Funcionalidades
-  -- Notas de la versión
-  -- 1)  Nueva organización de paquetes y metodos
+  -- Notas de la versiÃ³n
+  -- 1)  Nueva organizaciÃ³n de paquetes y metodos
  
  
   --Exception de cuando se quendan conductores sin tramos/segmentos asignanados
   conductor_sin_ubicacion exception;
 
-  --Exception de cuando se queda mucho tiempo em una funcionaliad de recursión
+  --Exception de cuando se queda mucho tiempo em una funcionaliad de recursiÃ³n
   timeout_loop exception;
 
   nodos_ali_con_bifurcacion tNodos;
@@ -222,7 +222,7 @@ create or replace package EAM_DISTRIBUCION is
                            pDatos        IN EAM_NODO_TABLE DEFAULT EAM_NODO_TABLE())
     return EAM_NODO_TABLE;
 
-  -- Hace el trace de acuerdo con las reglas de identificación de segmentos
+  -- Hace el trace de acuerdo con las reglas de identificaciÃ³n de segmentos
   function EAM_TRACESEGMENTOS(PG3E_ID            IN EAM_TRACES.G3E_ID%TYPE,
                               pCircuito          IN CRED_TEN_CIR_CAT.CIRCUITO%TYPE,
                               pCorte             elementos_corte,
@@ -235,7 +235,7 @@ create or replace package EAM_DISTRIBUCION is
                               timeout_min        IN NUMBER DEFAULT 15)
     return EAM_TRACE_TABLE;
 
-  -- Hace el trace de acuerdo con las reglas de identificación de tramos
+  -- Hace el trace de acuerdo con las reglas de identificaciÃ³n de tramos
   function EAM_TRACETRAMOS(PG3E_ID            IN EAM_TRACES.G3E_ID%TYPE,
                            pCircuito          IN CRED_TEN_CIR_CAT.CIRCUITO%TYPE,
                            pCorte             elementos_corte,
@@ -248,7 +248,7 @@ create or replace package EAM_DISTRIBUCION is
                            timeout_min        IN NUMBER DEFAULT 15)
     return EAM_TRACE_TABLE;
 
-  -- Hace el trace de acuerdo con las reglas de identificación de ramales
+  -- Hace el trace de acuerdo con las reglas de identificaciÃ³n de ramales
   function EAM_TRACERAMALES(PG3E_ID       IN EAM_TRACES.G3E_ID%TYPE,
                             pCircuito     IN CRED_TEN_CIR_CAT.CIRCUITO%TYPE,
                             pNodoAnterior IN NUMBER,
@@ -258,12 +258,12 @@ create or replace package EAM_DISTRIBUCION is
                             timeout_min   IN NUMBER DEFAULT 15)
     return EAM_TRACE_TABLE;
 
-  -- Hace la clasificación de las ubicaciones de un circuito y actualiza la tabla
+  -- Hace la clasificaciÃ³n de las ubicaciones de un circuito y actualiza la tabla
   -- EAM_UBICACIONES
   procedure EAM_UBICACION_CIR(pCircuito CRED_TEN_CIR_CAT.CIRCUITO%type,
                               pCorte    elementos_corte);
 
-  -- Hace la clasificación de los activos de un circuito y actualiza la tabla
+  -- Hace la clasificaciÃ³n de los activos de un circuito y actualiza la tabla
   -- EAM_ACTIVOS
   procedure EAM_ACTIVOS_CIR(pCircuito CRED_TEN_CIR_CAT.CIRCUITO%type);
 
@@ -605,7 +605,7 @@ create or replace package body EAM_DISTRIBUCION is
                            pCorte      elementos_corte,
                            timeout_min NUMBER DEFAULT 15) is
   
-    --hace la  clasificación de ramales, segmentos y tramos
+    --hace la  clasificaciÃ³n de ramales, segmentos y tramos
   
     cursor elementosCorteAlimentador(NombreCircuito eam_traces.circuito%type) is
       select *
@@ -836,7 +836,7 @@ create or replace package body EAM_DISTRIBUCION is
       end if;
     end loop;
   
-    --hacer la identificación del segmento/ramal que estan conectados
+    --hacer la identificaciÃ³n del segmento/ramal que estan conectados
     --con los elementos de transferencia
     --Segmentos
     for eCorte in elementosCorte(pCircuito) loop
@@ -2237,7 +2237,7 @@ create or replace package body EAM_DISTRIBUCION is
                  group by segmento, ramal, fid_padre
                  order by segmento asc) loop
     
-      --Código del padre del segmento
+      --CÃ³digo del padre del segmento
       select nvl(codigo, circuito), nvl(nodo_ubicacion, '')
         into vCodigo, vNodoUb
         from eam_traces
@@ -2599,7 +2599,7 @@ create or replace package body EAM_DISTRIBUCION is
              and circuito = pCircuito;
           begin
             if vCount = 0 then
-              --Mirar el fid del transformador travós del nodo_trasformador
+              --Mirar el fid del transformador travÃ³s del nodo_trasformador
           
               select g3e_fid
                 into vPadre

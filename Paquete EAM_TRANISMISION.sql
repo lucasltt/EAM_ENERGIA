@@ -1,33 +1,41 @@
 create or replace package EAM_TRANSMISION is
 
-  -- Modificaci贸n
+  -- Modificaci髇
   -- Version : 3.1.0
   -- Author  : Lucas Turchet
   -- Created : 09/05/2018
   -- Purpose : Nuevos Funcionalidades
-  -- Notas de la versi贸n
+  -- Notas de la versi髇
   -- 1)  Taxonomia de Tranismision
 
-  -- Modificaci贸n
+  -- Modificaci髇
   -- Version : 3.1.1
   -- Author  : Lucas Turchet
   -- Created : 11/05/2018
   -- Purpose : Ajustes
-  -- Notas de la versi贸n
-  -- 1) Ajuste del C贸digo de l铆nea en join incorrecto.  
-  -- 2) Ajuste de la Relaci贸n entre torres y corredores.
-  -- 3) Ajuste de la Descripci贸n nula en torres
-  
-  
-  -- Modificaci贸n
+  -- Notas de la versi髇
+  -- 1) Ajuste del C骴igo de l韓ea en join incorrecto.
+  -- 2) Ajuste de la Relaci髇 entre torres y corredores.
+  -- 3) Ajuste de la Descripci髇 nula en torres
+
+  -- Modificaci髇
   -- Version : 3.1.2
   -- Author  : Lucas Turchet
   -- Created : 11/05/2018
   -- Purpose : Ajustes
-  -- Notas de la versi贸n
+  -- Notas de la versi髇
   -- 1) Cambio de como se generar el numero del activo
+  
+  -- Modificaci髇
+  -- Version : 3.1.3
+  -- Author  : Lucas Turchet
+  -- Created : 28/05/2018
+  -- Purpose : Ajustes
+  -- Notas de la versi髇
+  -- 1) No genera m醩 activos y/u ubicaciones duplicadas
+  -- 2) Calculo de novedades y retirados para todos las lineas 
 
-  -- Ejecuta la taxonomia de Transmisi贸n
+  -- Ejecuta la taxonomia de Transmisi髇
   procedure EAM_TAXONOMIA_TRANSMISION;
 
 end EAM_TRANSMISION;
@@ -104,6 +112,12 @@ create or replace package body EAM_TRANSMISION is
       
         --Ubicaciones
         if vLinea = 1 then
+        
+          delete from eam_activos_temp where circuito = linea.circuito;
+          commit;
+          delete from eam_ubicacion_temp where circuito = linea.circuito;
+          commit;
+        
           insert into eam_ubicacion_temp
           values
             (linea.circuito,
@@ -164,9 +178,9 @@ create or replace package body EAM_TRANSMISION is
       
         delete from eam_traces where circuito = linea.circuito;
         commit;
-        vCorte  := eam_energia.eam_trace_cir(linea.circuito);
+        vCorte := eam_energia.eam_trace_cir(linea.circuito);
         select ora_hash(linea.cod_linea, 777777) into vActivo from dual;
-        vOrdem  := 0;
+        vOrdem := 0;
       
         --Conductores Transmision
         for conducTrans in (select circuito, G3e_Fid, g3e_fno
@@ -255,7 +269,7 @@ create or replace package body EAM_TRANSMISION is
         
         end loop; --Ductos
       
-        --Canalizaci贸n
+        --Canalizaci髇
         for canalizacion in (select can.g3e_fid, can.g3e_fno
                                from ecanaliz_at can
                               inner join ccontenedor con
@@ -317,58 +331,61 @@ create or replace package body EAM_TRANSMISION is
         
         end loop; --Poste
       
-        --Torre
-        for torre in (select tor.g3e_fid, tor.g3e_fno
-                        from etor_trm_at tor
-                       where tor.clase_torre != 'PORTICO'
-                         and tor.corredor_nro = corredor.corredor_nro
-                       group by tor.g3e_fid, tor.g3e_fno) loop
+        if vLinea = 1 then
+          --Torre
+          for torre in (select tor.g3e_fid, tor.g3e_fno
+                          from etor_trm_at tor
+                         where tor.clase_torre != 'PORTICO'
+                           and tor.corredor_nro = corredor.corredor_nro
+                         group by tor.g3e_fid, tor.g3e_fno) loop
+          
+            select LISTAGG(nro_torre_linea || '-LINEA ' || codigo_linea,
+                           ';') within group(order by codigo_linea)
+              into vDesc
+              from etor_trm_nro_at
+             where g3e_fid = torre.g3e_fid;
+          
+            insert into eam_activos_temp
+            values
+              (linea.circuito,
+               torre.G3e_Fid,
+               torre.g3e_fno,
+               'TORRE',
+               'EST-' || corredor.corredor_nro,
+               6,
+               linea.g3e_fid,
+               null,
+               null,
+               vDESC,
+               vACT);
+            commit;
+          
+          end loop; --Torre
         
-          select LISTAGG(nro_torre_linea || '-LINEA ' || codigo_linea, ';') within group(order by codigo_linea)
-            into vDesc
-            from etor_trm_nro_at
-           where g3e_fid = torre.g3e_fid;
-        
-          insert into eam_activos_temp
-          values
-            (linea.circuito,
-             torre.G3e_Fid,
-             torre.g3e_fno,
-             'TORRE',
-             'EST-' || corredor.corredor_nro,
-             6,
-             linea.g3e_fid,
-             null,
-             null,
-             vDESC,
-             vACT);
-          commit;
-        
-        end loop; --Torre
-      
-        --Portico
-        for torre in (select tor.g3e_fid, tor.g3e_fno
-                        from etor_trm_at tor
-                       where tor.clase_torre = 'PORTICO'
-                         and tor.corredor_nro = corredor.corredor_nro
-                       group by tor.g3e_fid, tor.g3e_fno) loop
-        
-          insert into eam_activos_temp
-          values
-            (linea.circuito,
-             torre.G3e_Fid,
-             torre.g3e_fno,
-             'PORTICO',
-             'EST-' || corredor.corredor_nro,
-             6,
-             linea.g3e_fid,
-             null,
-             null,
-             null,
-             vACT);
-          commit;
-        
-        end loop; --Portico
+          --Portico
+          for torre in (select tor.g3e_fid, tor.g3e_fno
+                          from etor_trm_at tor
+                         where tor.clase_torre = 'PORTICO'
+                           and tor.corredor_nro = corredor.corredor_nro
+                         group by tor.g3e_fid, tor.g3e_fno) loop
+          
+            insert into eam_activos_temp
+            values
+              (linea.circuito,
+               torre.G3e_Fid,
+               torre.g3e_fno,
+               'PORTICO',
+               'EST-' || corredor.corredor_nro,
+               6,
+               linea.g3e_fid,
+               null,
+               null,
+               null,
+               vACT);
+            commit;
+          
+          end loop; --Portico
+        end if;
       
         --Pararrayos
         for para in (select g3e_fid, g3e_fno
@@ -395,11 +412,9 @@ create or replace package body EAM_TRANSMISION is
         
         end loop; --Pararrayos
       
-        if vLinea = 1 then
-          EAM_ENERGIA.EAM_MANEJO_ACTIVO(linea.circuito);
-          EAM_ENERGIA.EAM_MANEJO_RETIRADOS(linea.circuito);
-          EAM_ENERGIA.EAM_MANEJO_NOVEDADES(linea.circuito);
-        end if;
+        EAM_ENERGIA.EAM_MANEJO_ACTIVO(linea.circuito);
+        EAM_ENERGIA.EAM_MANEJO_RETIRADOS(linea.circuito);
+        EAM_ENERGIA.EAM_MANEJO_NOVEDADES(linea.circuito);
       
       end loop; --Linea
     

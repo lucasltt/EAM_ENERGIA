@@ -11,6 +11,15 @@ create or replace package EAM_ENERGIA is
   -- Purpose : Nuevos Funcionalidades
   -- Notas de la versión
   -- 1)  Mejor manejo de las novedads y retirados
+  
+  -- Modificación
+  -- Version : 3.1.1
+  -- Author  : Lucas Turchet
+  -- Created : 28/05/2018
+  -- Purpose : Ajustes
+  -- Notas de la versión
+  -- 1)  Cambio en la identificación de novedades, para los activos se considera el circuito
+  --     y para las ubicaciones se considera el circuito y la ubicacion en elos MERGES
 
   --Exception de circuito que no tiene un interruptor
   circuito_sin_interruptor exception;
@@ -22,13 +31,13 @@ create or replace package EAM_ENERGIA is
   function EAM_TRACE_CIR(pCircuito CRED_TEN_CIR_CAT.Circuito%type)
     return elementos_corte;
 
-  -- Maneja las novedades 
+  -- Maneja las novedades
   procedure EAM_MANEJO_NOVEDADES(pcircuito varchar2);
 
-  -- Maneja los retirados 
+  -- Maneja los retirados
   procedure EAM_MANEJO_RETIRADOS(pcircuito varchar2);
 
-  -- Recalcula los numeros de los activos despues de la primer ejecución
+  -- Recalcula los numeros de los activos despues de la primer ejecuci?n
   procedure EAM_MANEJO_ACTIVO(pCircuito CRED_TEN_CIR_CAT.CIRCUITO%type);
 
   --Limpia Todas las Tablas
@@ -286,11 +295,13 @@ create or replace package body EAM_ENERGIA is
              viejo.fid_padre           = nuevo.fid_padre,
              viejo.activo              = nuevo.activo,
              viejo.ordem               = nuevo.ordem,
-             viejo.fecha_actualizacion = nuevo.fecha_actualizacion
+             viejo.fecha_actualizacion = nuevo.fecha_actualizacion,
+             viejo.circuito            = nuevo.circuito
        where (nvl(nuevo.activo_nombre, 0) != nvl(viejo.activo_nombre, 0) or
              nvl(nuevo.ubicacion, 0) != nvl(viejo.ubicacion, 0) or
              nvl(nuevo.fid_padre, 0) != nvl(viejo.fid_padre, 0) or
-             nvl(nuevo.activo, 0) != nvl(viejo.activo, 0))
+             nvl(nuevo.activo, 0) != nvl(viejo.activo, 0) or
+             nvl(nuevo.circuito, 0) != nvl(viejo.circuito, 0))
          and nuevo.g3e_fno = viejo.g3e_fno
          and nuevo.circuito = pCircuito
     when not matched then
@@ -320,16 +331,19 @@ create or replace package body EAM_ENERGIA is
   
     merge into eam_ubicacion viejo
     using eam_ubicacion_temp nuevo
-    on (viejo.g3e_fid = nuevo.g3e_fid and viejo.ubicacion = nuevo.ubicacion)
+    on (viejo.circuito = nuevo.circuito and viejo.ubicacion = nuevo.ubicacion)
     when matched then
       update
          set viejo.codigo_ubicacion    = nuevo.codigo_ubicacion,
              viejo.nivel_superior      = nuevo.nivel_superior,
-             viejo.fecha_actualizacion = nuevo.fecha_actualizacion
+             viejo.fecha_actualizacion = nuevo.fecha_actualizacion,
+             viejo.g3e_fid             = nuevo.g3e_fid,
+             viejo.g3e_fno             = nuevo.g3e_fno
        where (nvl(nuevo.codigo, 0) != nvl(viejo.codigo, 0) or
              nvl(nuevo.codigo_ubicacion, 0) !=
              nvl(viejo.codigo_ubicacion, 0) or
-             nvl(nuevo.nivel_superior, 0) != nvl(viejo.nivel_superior, 0))
+             nvl(nuevo.nivel_superior, 0) != nvl(viejo.nivel_superior, 0) or
+             nvl(nuevo.g3e_fid, 0) != nvl(viejo.g3e_fid, 0))
          and nuevo.g3e_fno = viejo.g3e_fno
          and nuevo.circuito = pCircuito
     when not matched then
@@ -351,9 +365,9 @@ create or replace package body EAM_ENERGIA is
 
   procedure EAM_MANEJO_ACTIVO(pCircuito CRED_TEN_CIR_CAT.CIRCUITO%type) is
   
-    --esta funcion calcula recalcula los numeros de los activos despues de la primer ejecución
-    --ATENCION:  los elementos que no hacem parte de un tamos/segmento no tendrón sus activos recalculados
-    --y se quedaran con un nuevo numero de activo depues de toda ejecución del flujo
+    --esta funcion calcula recalcula los numeros de los activos despues de la primer ejecuci?n
+    --ATENCION:  los elementos que no hacem parte de un tamos/segmento no tendr?n sus activos recalculados
+    --y se quedaran con un nuevo numero de activo depues de toda ejecuci?n del flujo
   
     cursor fidsPadre(pCircuito CRED_TEN_CIR_CAT.CIRCUITO%type) is
       select t.fid_padre, u.codigo_ubicacion
